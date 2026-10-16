@@ -1,0 +1,4 @@
+.qdrant
+
+__pycache__/
+*.pyc

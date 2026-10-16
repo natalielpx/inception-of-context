@@ -1,0 +1,22 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC, used internally by the client for faster transfers
+
+  watcher:
+    build: ./p1
+    environment:
+      - IOC_TARGET=/workspace
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+    volumes:
+      - ./target:/workspace
+    depends_on:
+      - qdrant
+
+volumes:
+  qdrant_storage:
