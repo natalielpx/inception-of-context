@@ -1,0 +1,4 @@
+streamlit>=1.50
+qdrant-client==1.19.1
+pandas
+requests
