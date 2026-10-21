@@ -1,54 +1,64 @@
-import streamlit as st
+"""Qdrant Explorer: browse raw points page by page, inspect one payload."""
+import json
+
+from nicegui import ui
 
 import data
+from . import code, failed, fetch, language
 
-PAGE = 50
-ss = st.session_state
-
-
-def load_page():
-    """Append the next page for the current path filter to the loaded rows."""
-    path = None if ss.exp_path == "All" else ss.exp_path
-    rows, cursor = data.get_chunks(path, PAGE, ss.exp_cursor)
-    if err := data.error_of(rows):
-        ss.exp_error = err
-        return
-    ss.exp_rows += rows
-    ss.exp_cursor, ss.exp_done, ss.exp_error = cursor, cursor is None, None
+COLUMNS = [{"name": n, "label": n, "field": f, "align": "left", "sortable": True}
+           for n, f in [("id", "short_id"), ("path", "path"), ("lines", "lines"),
+                        ("symbol", "symbol"), ("kind", "kind"), ("hash", "short_hash")]]
 
 
-def reset():
-    ss.exp_rows, ss.exp_cursor, ss.exp_done, ss.exp_error = [], None, False, None
-    load_page()
+def build():
+    state = {"cursor": None, "loaded": False, "payloads": {}}
 
+    with ui.row().classes("items-end gap-4"):
+        path_select = ui.select(["All"], value="All", label="path", on_change=lambda: reload()).classes("w-72")
+        search = ui.input("filter loaded rows (symbol, path…)").classes("w-72")
+    table = ui.table(columns=COLUMNS, rows=[], row_key="id", pagination={"rowsPerPage": 0}) \
+        .props("dense flat").classes("w-full bg-slate-800")
+    search.bind_value_to(table, "filter")
+    table.on("rowClick", lambda e: detail.refresh(state["payloads"].get(e.args[1]["id"])))
+    more = ui.button("Load more", on_click=lambda: load()).props("flat")
 
-def render():
-    files = data.get_files()
-    if err := data.error_of(files):
-        return st.error(err)
+    @ui.refreshable
+    def detail(payload: dict | None):
+        if payload:
+            with ui.expansion(f"point {payload['id']}", value=True).classes("w-full bg-slate-800"):
+                code(payload.get("text", ""), language(payload.get("path", "")))
+                code(json.dumps(payload, indent=2), "json")
 
-    left, right = st.columns(2)
-    left.selectbox("Path", ["All"] + [f["path"] for f in files], key="exp_path", on_change=reset)
-    symbol = right.text_input("Symbol contains", key="exp_symbol").strip().lower()
-    if "exp_rows" not in ss:
-        reset()
-    if ss.exp_error:
-        st.error(ss.exp_error)
+    detail(None)
 
-    rows = [r for r in ss.exp_rows if symbol in (r.get("symbol") or "").lower()]
-    st.dataframe([{"id": r["id"], "path": r.get("path"), "lines": f"{r.get('start_line')}–{r.get('end_line')}",
-                   "symbol": r.get("symbol"), "kind": r.get("kind"), "hash": (r.get("hash") or "")[:8]}
-                  for r in rows], hide_index=True, width="stretch")
+    async def load():
+        path = None if path_select.value == "All" else path_select.value
+        result = await fetch(data.get_chunks, path, 50, state["cursor"])
+        if failed(result):
+            ui.notify(result["error"], type="negative")
+            return
+        rows, state["cursor"] = result
+        state["loaded"] = True
+        state["payloads"].update({r["id"]: r for r in rows})
+        table.add_rows([{"id": r["id"], "short_id": r["id"][:8], "path": r.get("path"), "symbol": r.get("symbol"),
+                         "kind": r.get("kind"), "lines": f"{r.get('start_line')}–{r.get('end_line')}",
+                         "short_hash": str(r.get("hash", ""))[:8]} for r in rows])
+        more.set_enabled(state["cursor"] is not None)
 
-    a, b, _ = st.columns([1, 1, 6])
-    a.button("Load more", on_click=load_page, disabled=ss.exp_done)
-    b.button("Refresh", on_click=reset)
-    st.caption(f"{len(rows)} shown · {len(ss.exp_rows)} loaded" + (" · end of collection" if ss.exp_done else ""))
+    async def reload():
+        state["cursor"] = None
+        state["payloads"].clear()
+        table.update_rows([])
+        detail.refresh(None)
+        await load()
 
-    if rows:
-        by_id = {r["id"]: r for r in rows}
-        point_id = st.selectbox("Point", list(by_id),
-                                format_func=lambda i: f"{i} · {by_id[i].get('path')} · {by_id[i].get('symbol')}")
-        point = by_id[point_id]
-        st.code(point.get("text", ""), language="python" if point.get("path", "").endswith(".py") else "text")
-        st.json({k: v for k, v in point.items() if k != "text"})
+    async def update(snap: dict):
+        if not failed(snap["files"]):
+            paths = [f["path"] for f in snap["files"]]
+            current = path_select.value if path_select.value in paths else "All"
+            path_select.set_options(["All", *paths], value=current)
+        if not state["loaded"]:
+            await reload()
+
+    return update

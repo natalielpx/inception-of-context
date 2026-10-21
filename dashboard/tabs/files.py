@@ -1,54 +1,71 @@
-from pathlib import Path
-
-import streamlit as st
+"""Files: the on-disk file, rendered one chunk at a time."""
+from nicegui import ui
 
 import data
-
-LANGUAGES = {".py": "python", ".yml": "yaml", ".yaml": "yaml", ".md": "markdown",
-             ".json": "json", ".js": "javascript", ".ts": "typescript"}
+from . import code, failed, fetch, language
 
 
-def render():
-    files = data.get_files()
-    if err := data.error_of(files):
-        return st.error(err)
-    if not files:
-        return st.info("Nothing indexed yet.")
-
-    counts = {f["path"]: f["chunks"] for f in files}
-    left, right = st.columns([1, 3])
-    path = left.radio("Files in target", list(counts), format_func=lambda p: f"{p} · {counts[p]}")
-
-    with right:
-        f = data.get_file(path)
-        if err := data.error_of(f):
-            return st.error(err)
-        st.subheader(path)
-        st.caption(f"{f['lines']} lines · {f['bytes']} bytes · {len(f['chunks'])} chunks")
-        language = LANGUAGES.get(Path(path).suffix.lower(), "text")
-        for title, start, end in sections(f):
-            st.markdown(title)
-            show_lines(f["content"], start, end, language)
+def _segments(lines: list[str], chunks: list[dict]):
+    """Chunks plus the runs of lines no chunk covers, ordered by first line."""
+    covered = {n for c in chunks for n in range(c["start_line"], c["end_line"] + 1)}
+    gaps, start, last = [], None, None
+    for n in range(1, len(lines) + 2):
+        if n > len(lines) or n in covered:
+            if start:
+                gaps.append({"start_line": start, "end_line": last, "gap": True})
+            start = None
+        elif lines[n - 1].strip():  # blank lines neither open nor close a gap
+            start, last = start or n, n
+    return sorted([*chunks, *gaps], key=lambda s: s["start_line"])
 
 
-def sections(f):
-    """(title, start, end) for every chunk, plus non-blank gaps between chunks. Lines are 1-based."""
-    lines, pos = f["content"].splitlines(), 1
-    out = []
-    for i, c in enumerate(f["chunks"], 1):
-        start, end = c["start_line"], c["end_line"]
-        if start > pos and "".join(lines[pos - 1:start - 1]).strip():
-            out.append(("**(not in any chunk)**", pos, start - 1))
-        symbol = f" · `{c['symbol']}`" if c.get("symbol") else ""
-        out.append((f"**▶ chunk #{i} — lines {start}–{end}**{symbol}", start, end))
-        pos = max(pos, end + 1)
-    if pos <= len(lines) and "".join(lines[pos - 1:]).strip():
-        out.append(("**(not in any chunk)**", pos, len(lines)))
-    return out
+def build():
+    state = {"path": None}
 
+    @ui.refreshable
+    def file_list(files: list | None):
+        for f in [] if not files or failed(files) else files:
+            selected = "bg-slate-700" if f["path"] == state["path"] else ""
+            with ui.row().classes(f"w-full no-wrap cursor-pointer px-2 py-1 rounded {selected}") \
+                    .on("click", lambda p=f["path"]: open_file(p)):
+                ui.label(f["path"]).classes("truncate")
+                ui.label(str(f["chunks"])).classes("ml-auto text-grey-5")
 
-def show_lines(content, start, end, language):
-    # st.code numbers every block from 1, so print the real file line numbers ourselves.
-    all_lines = content.splitlines()
-    lines, width = all_lines[start - 1:end], len(str(len(all_lines)))
-    st.code("\n".join(f"{n:>{width}}  {line}" for n, line in enumerate(lines, start)), language=language)
+    @ui.refreshable
+    def view(file: dict | None):
+        if file is None:
+            ui.label("Select a file.").classes("text-grey-6")
+            return
+        if failed(file):
+            ui.label(file["error"]).classes("text-warning" if file.get("missing") else "text-negative")
+            return
+        ui.label(file["path"]).classes("text-base")
+        ui.label(f"{file['lines']} lines · {file['bytes']} bytes · {len(file['chunks'])} chunks").classes("text-grey-5")
+        lines, lang, n = file["content"].splitlines(), language(file["path"]), 0
+        for seg in _segments(lines, file["chunks"]):
+            span = f"lines {seg['start_line']}–{seg['end_line']}"
+            if seg.get("gap"):
+                ui.label(f"(not in any chunk) — {span}").classes("text-grey-6 mt-2")
+            else:
+                n += 1
+                ui.label(f"▶ chunk #{n} — {span} · {seg.get('symbol') or seg.get('kind', '')}").classes("text-primary mt-2")
+            code("\n".join(lines[seg["start_line"] - 1:seg["end_line"]]), lang)
+
+    async def open_file(path: str):
+        state["path"] = path
+        file_list.refresh()
+        view.refresh(await fetch(data.get_file, path))
+
+    with ui.splitter(value=25).classes("w-full") as split:
+        with split.before:
+            file_list(None)
+        with split.after:
+            with ui.column().classes("w-full pl-4"):
+                view(None)
+
+    async def update(snap: dict):
+        file_list.refresh(snap["files"])
+        if state["path"] and any(e.get("path") == state["path"] for e in snap["new"]):
+            await open_file(state["path"])
+
+    return update

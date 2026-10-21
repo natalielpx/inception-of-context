@@ -1,22 +1,30 @@
 services:
+
   qdrant:
-    image: qdrant/qdrant:v1.12.4
+    image: qdrant/qdrant:v1.19.2
     volumes:
       - qdrant_storage:/qdrant/storage
     ports:
       - "6333:6333"   # REST API
       - "6334:6334"   # gRPC, used internally by the client for faster transfers
 
-  watcher:
-    build: ./p1
+  dashboard:
+    build: ./dashboard
+    profiles: ["p1", "p2", "p3"]
     environment:
-      - IOC_TARGET=/workspace
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
+      IOC_SOURCE: direct
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ioc_chunks
+      TARGET_PATH: /workspace
+      EVENTS_LOG: /data/ioc_events.jsonl
     volumes:
-      - ./target:/workspace
+      - ${TARGET_DIR:-./target}:/workspace:ro
+      - ioc_data:/data
     depends_on:
       - qdrant
+    ports:
+      - "8080:8080"
 
 volumes:
   qdrant_storage:
+  ioc_data:
