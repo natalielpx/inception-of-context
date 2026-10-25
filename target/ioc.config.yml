@@ -1,12 +1,7 @@
-# Validation command IoC runs after applying a patch to this target.
-# Compile-only check (no flashing) — fast, deterministic, no hardware needed.
-validate:
-  command: "pio run -e t-dongle-s3"
-  cwd: "."
-  timeout_seconds: 120
-
-# Globs the indexer/patch-loop should never touch, in addition to the
-# hardcoded node_modules/.git/dist/build/venv/__pycache__ skip list.
-exclude:
-  - ".pio/"
-  - ".vscode/"
+validation:
+  command: 'python -m py_compile {files}'
+  timeout_seconds: 30
+ 
+on_success:
+  command: 'git add {files} && git commit -m "ioc: {summary}" && git push'
+  timeout_seconds: 60

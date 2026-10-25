@@ -7,7 +7,7 @@ services:
       - "6333:6333"   # REST API
       - "6334:6334"   # gRPC, used internally by the client for faster transfers
 
-  watcher:
+  indexer:
     build: ./p1
     environment:
       - IOC_TARGET=/workspace
