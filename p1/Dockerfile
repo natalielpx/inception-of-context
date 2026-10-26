@@ -10,4 +10,4 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 
 COPY . .
 
-ENTRYPOINT ["python", "src/main.py"]
+ENTRYPOINT ["python", "src/main.py", "/workspace"]

@@ -25,6 +25,17 @@ services:
     ports:
       - "8080:8080"
 
+  indexer:
+      build: ./p1
+      environment:
+        - IOC_TARGET=/workspace
+        - QDRANT_HOST=qdrant
+        - QDRANT_PORT=6333
+      volumes:
+        - ./target:/workspace
+      depends_on:
+        - qdrant
+
 volumes:
   qdrant_storage:
   ioc_data:

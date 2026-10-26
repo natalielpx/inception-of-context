@@ -31,6 +31,7 @@ void Tamagotchi::sleep( void ) {
 	std::cout << "zzzzZZ..." << std::endl;
 }
 
+// Tamagotchi does nothing
 void Tamagotchi::wait( void ) {
 	if (_asleep) return;
 	std::cout << "..." << std::endl;
