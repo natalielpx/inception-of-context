@@ -22,7 +22,7 @@ cd p1/dashboard && QDRANT_URL=http://localhost:6333 TARGET_PATH=../../demo EVENT
 |---|---|---|
 | `IOC_SOURCE` | `direct` | where data comes from (see below) |
 | `QDRANT_URL` | `http://qdrant:6333` | `direct` |
-| `QDRANT_COLLECTION` | `ioc_chunks` | both |
+| `QDRANT_COLLECTION` | `chunks` | both |
 | `TARGET_PATH` | `/workspace` | `direct` (mounted read-only) |
 | `EVENTS_LOG` | `/data/ioc_events.jsonl` | `direct`; must be **outside** the target, or the watcher sees its own writes |
 | `API_URL` | `http://api:8000` | `api` (Part 2+) |

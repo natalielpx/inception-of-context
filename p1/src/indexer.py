@@ -7,7 +7,7 @@ from sentence_transformers import SentenceTransformer
 
 from chunker import Chunker
 from files import dir_to_be_indexed, file_to_be_indexed, files_to_be_indexed
-
+from logger import log_event
 
 def print_chunks(chunks, show_text=True):
     chunks = sorted(chunks, key=lambda c: (c.path, c.start_line, c.end_line))
@@ -140,4 +140,4 @@ class Indexer:
 			try:
 				self.sync_file(f)
 			except Exception as e:
-				print(f"[index] {f}: {e}")
+				log_event("error", f, detail=str(e))

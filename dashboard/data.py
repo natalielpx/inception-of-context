@@ -13,7 +13,7 @@ from pathlib import Path
 from qdrant_client import QdrantClient, models
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
-COLLECTION = os.getenv("QDRANT_COLLECTION", "ioc_chunks")
+COLLECTION = os.getenv("QDRANT_COLLECTION", "chunks")
 TARGET_PATH = Path(os.getenv("TARGET_PATH", "/workspace"))
 EVENTS_LOG = Path(os.getenv("EVENTS_LOG", "/data/ioc_events.jsonl"))
 API_URL = os.getenv("API_URL", "http://api:8000")

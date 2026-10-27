@@ -14,12 +14,12 @@ services:
     environment:
       IOC_SOURCE: direct
       QDRANT_URL: http://qdrant:6333
-      QDRANT_COLLECTION: ioc_chunks
+      QDRANT_COLLECTION: chunks
       TARGET_PATH: /workspace
-      EVENTS_LOG: /data/ioc_events.jsonl
+      EVENTS_LOG: /ioc/events/events.jsonl
     volumes:
       - ${TARGET_DIR:-./target}:/workspace:ro
-      - ioc_data:/data
+      - index_events:/ioc/events/
     depends_on:
       - qdrant
     ports:
@@ -38,4 +38,4 @@ services:
 
 volumes:
   qdrant_storage:
-  ioc_data:
+  index_events:

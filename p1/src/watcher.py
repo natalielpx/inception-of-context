@@ -9,6 +9,7 @@ from watchdog.observers.polling import PollingObserver
 
 from files import dir_to_be_indexed, path_to_be_watched
 
+
 logging.basicConfig(
 	level=os.environ.get("LOG_LEVEL", "INFO"),
 	format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
@@ -33,21 +34,15 @@ class Watcher(FileSystemEventHandler):
 		self.lock = threading.Lock()
 		self.observer = None
 
-	def _short(self, path):
-		"""/workspace/src/main.cpp -> src/main.cpp, for readable logs."""
-		try:
-			return str(Path(path).relative_to(self.target_root)) or "."
-		except ValueError:
-			return str(path)
-
 	# time.monotonic() never jumps backwards if system clock changes
 	def add_to_queue(self, path):
 		with self.lock:
 			requeued = path in self.pending
 			self.pending[path] = time.monotonic()
-		log.debug("%s %s", "requeued" if requeued else "queued", self._short(path))
+		log.debug("%s %s", "requeued" if requeued else "queued", path)
 
 	def on_any_event(self, e):
+
 		if e.event_type == "moved":
 			paths = [e.src_path, e.dest_path]
 		elif e.event_type in ("created", "modified", "deleted"):
@@ -58,16 +53,15 @@ class Watcher(FileSystemEventHandler):
 		kind = "dir" if e.is_directory else "file"
 		for path in paths:
 			if e.is_directory:
-				# a folder's own "modified" fires whenever a child changes; skip it
+				# skip a folder's own "modified" when a child changes
 				wanted = e.event_type != "modified" and dir_to_be_indexed(self.target_root, path)
 			else:
 				wanted = path_to_be_watched(self.target_root, path)
-
 			if wanted:
-				log.info("event %-8s %-4s %s", e.event_type, kind, self._short(path))
+				log.info("event %-8s %-4s %s", e.event_type, kind, path)
 				self.add_to_queue(path)
 			else:
-				log.debug("ignored %-8s %-4s %s", e.event_type, kind, self._short(path))
+				log.debug("ignored %-8s %-4s %s", e.event_type, kind, path)
 
 	def _nearest_existing_dir(self, path):
 		p = Path(path)
@@ -76,7 +70,6 @@ class Watcher(FileSystemEventHandler):
 		return p
 
 	def _drain(self):
-		log.info("drain thread started (delay=%.1fs)", self.DELAY)
 		last_full_sync = time.monotonic()
 		while True:
 			time.sleep(self.WAIT)
@@ -101,13 +94,13 @@ class Watcher(FileSystemEventHandler):
 							action = "synced"
 					ms = (time.monotonic() - start) * 1000
 					if action == "indexed":
-						log.info("indexed file %s (%.0f ms)", self._short(target), ms)
+						log.info("indexed file %s (%.0f ms)", target, ms)
 					else:
 						log.info("synced dir %s/ after change to %s (%.0f ms)",
-							self._short(target), self._short(path), ms)
+							target, path, ms)
 					self.on_change(action, path)
 				except Exception:
-					log.exception("failed on %s", self._short(path))
+					log.exception("failed on %s", path)
 
 			if now - last_full_sync >= self.FULL_SYNC:
 				last_full_sync = now

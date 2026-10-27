@@ -31,7 +31,6 @@ def main() -> int:
 	)
 	with indexer.lock:
 		indexer.sync_dir(target)
-	print(f"[p1] indexed {target}, watching for changes", flush=True)
 
 	# Watch mode
 	watcher = Watcher(
