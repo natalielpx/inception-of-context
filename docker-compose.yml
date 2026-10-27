@@ -36,6 +36,43 @@ services:
       depends_on:
         - qdrant
 
+  conv-model:
+    image: ollama-with-curl:latest
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM ollama/ollama:latest
+        RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+    container_name: ollama-qwen
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+    # Automatically pulls the model on container startup
+    entrypoint: [ "/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull qwen2.5:3b && wait" ]
+    healthcheck:
+      # Verifies the Ollama API responds AND that the specific model is loaded/available
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/tags | grep -q 'qwen2.5:3b'"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s # Gives time for the initial download of the 3B model
+
+  api:
+    build: ./p2
+    profiles: ["p2", "p3"]
+    ports:
+      - "80:80"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
 volumes:
   qdrant_storage:
   index_events:
+  ollama_data:
