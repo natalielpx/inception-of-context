@@ -11,59 +11,46 @@ INCL_EXTS = {
 }
 
 
-def _dir_name_ok(name: str) -> bool:
-	return not name.startswith(".") and name.lower() not in EXCL_DIRS
-
-
-def _file_name_ok(name: str) -> bool:
-	return not name.startswith(".") and Path(name).suffix.lower() in INCL_EXTS
-
-
-def _is_binary(path: str) -> bool:
+def _is_binary(path: Path) -> bool:
+	"""Catches binary files with included extensions"""
 	try:
 		with open(path, "rb") as fh:
 			return b"\0" in fh.read(8192)
 	except OSError:
-		return True
+		return False  # unreadable/vanished: let indexer decide
 
+def _file_ok(name: str) -> bool:
+	return not name.startswith(".") and Path(name).suffix.lower() in INCL_EXTS
 
-def dir_to_be_indexed(root: str, dirpath: str) -> bool:
-	"""True if `dirpath` is inside `root` and no folder on the way is excluded.
-	Path-only: works for folders that no longer exist."""
+def _dir_ok(name: str) -> bool:
+	return not name.startswith(".") and name.lower() not in EXCL_DIRS
+
+def to_be_indexed(root: str, path: str) -> bool:
+	"""Should this path be indexed? Works for deleted files too."""
+	p = Path(path)
 	try:
-		rel = Path(dirpath).resolve().relative_to(Path(root).resolve())
+		rel = p.resolve().relative_to(Path(root).resolve())
 	except ValueError:
 		return False
-	return all(_dir_name_ok(name) for name in rel.parts)
+	if not rel.parts:
+		return False
+	*dirs, name = rel.parts
+	if not (all(_dir_ok(d) for d in dirs) and _file_ok(name)):
+		return False
+	# return False
+	return not (p.is_file() and _is_binary(p))
 
 
-def path_to_be_watched(root: str, path: str) -> bool:
-	"""True if a file at `path` would be indexed, judging by its path alone.
-	Path-only: works for deleted files. Used by the watcher."""
+def files_to_be_indexed(root: str, path: str) -> list[Path]:
+	"""Files to index under `path` (file,directory, or missing)"""
 	p = Path(path)
-	return _file_name_ok(p.name) and dir_to_be_indexed(root, str(p.parent))
-
-
-def file_to_be_indexed(root: str, filepath: str) -> bool:
-	"""path_to_be_watched, plus: it exists, is a file, and isn't binary."""
-	return (
-		path_to_be_watched(root, filepath)
-		and os.path.isfile(filepath)
-		and not _is_binary(filepath)
-	)
-
-
-def files_to_be_indexed(root: str, dirpath: str) -> list[str]:
-	"""Every indexable file under `dirpath`."""
-	if not dir_to_be_indexed(root, dirpath):
+	if p.is_file():
+		candidates = [p]
+	elif p.is_dir():
+		candidates = []
+		for cur, dirnames, filenames in os.walk(p):
+			dirnames[:] = [d for d in dirnames if _dir_ok(d)]  # prune early
+			candidates += [Path(cur, f) for f in filenames]
+	else:
 		return []
-
-	files = []
-	for current, dirnames, filenames in os.walk(dirpath):
-		# Parents are already validated, so checking each name is enough
-		dirnames[:] = [d for d in dirnames if _dir_name_ok(d)]
-		for f in filenames:
-			full = os.path.join(current, f)
-			if _file_name_ok(f) and os.path.isfile(full) and not _is_binary(full):
-				files.append(full)
-	return files
+	return [f for f in candidates if to_be_indexed(root, f)]

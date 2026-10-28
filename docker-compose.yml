@@ -16,7 +16,7 @@ services:
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: chunks
       TARGET_PATH: /workspace
-      EVENTS_LOG: /ioc/events/events.jsonl
+      LOG_FILE: /ioc/events/events.jsonl
     volumes:
       - ${TARGET_DIR:-./target}:/workspace:ro
       - index_events:/ioc/events/
@@ -28,11 +28,14 @@ services:
   indexer:
       build: ./p1
       environment:
-        - IOC_TARGET=/workspace
-        - QDRANT_HOST=qdrant
-        - QDRANT_PORT=6333
+        IOC_TARGET: /workspace
+        QDRANT_HOST: qdrant
+        QDRANT_PORT: 6333
+        LOG_FILE: /ioc/events/events.jsonl
+        LOG_LEVEL: INFO
       volumes:
         - ./target:/workspace
+        - index_events:/ioc/events/
       depends_on:
         - qdrant
 

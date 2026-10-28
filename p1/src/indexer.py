@@ -6,8 +6,10 @@ from qdrant_client.models import VectorParams, Distance, FilterSelector, Filter,
 from sentence_transformers import SentenceTransformer
 
 from chunker import Chunker
-from files import dir_to_be_indexed, file_to_be_indexed, files_to_be_indexed
-from logger import log_event
+from files import to_be_indexed, files_to_be_indexed
+
+import traceback
+from logger import log
 
 def print_chunks(chunks, show_text=True):
     chunks = sorted(chunks, key=lambda c: (c.path, c.start_line, c.end_line))
@@ -43,7 +45,7 @@ class Indexer:
 				vectors_config=VectorParams(size=self.embedder.get_sentence_embedding_dimension(), distance=Distance.COSINE),
 			)
 		self.hashmap = self.load_hashmap()
-		self.lock = threading.Lock()
+		self.lock = threading.RLock() # RLock lets the thread that already holds it acquire it again
 
 	def load_hashmap(self) -> dict:
 		hashmap = {}
@@ -74,10 +76,10 @@ class Indexer:
 		for f in files:
 			self.hashmap.pop(f, None)
 	
-	def sync_file(self, filepath: str):
+	def _sync_file(self, filepath: str):
 
 		# Non-existent or not to be indexed
-		if not os.path.isfile(filepath) or not file_to_be_indexed(self.target_root, filepath):
+		if not os.path.isfile(filepath) or not to_be_indexed(self.target_root, filepath):
 			if filepath in self.hashmap:
 				self.rm_chunks_by_path([filepath])
 			return
@@ -115,14 +117,14 @@ class Indexer:
 		# Update dict of target file in hashmap
 		self.hashmap[filepath] = new_hashes
 
-	def sync_dir(self, dirpath:str):
+	def _sync_dir(self, dirpath: str):
 
 		# Obtain previously indexed files under target directory
 		prefix = str(dirpath).rstrip("/") + "/"
 		indexed_files = [p for p in self.hashmap if p.startswith(prefix)]
 
 		# Non-existent, not to be indexed, or deleted
-		if not os.path.isdir(dirpath) or not dir_to_be_indexed(self.target_root, dirpath):
+		if not os.path.isdir(dirpath) or not to_be_indexed(self.target_root, dirpath):
 			if indexed_files:
 				self.rm_chunks_by_path(indexed_files)
 			return
@@ -140,4 +142,13 @@ class Indexer:
 			try:
 				self.sync_file(f)
 			except Exception as e:
-				log_event("error", f, detail=str(e))
+				print("error", f, detail=str(e))
+
+	def sync_path(self, path: str):
+		with self.lock:
+			# Folder: sync everything inside
+			if os.path.isdir(path) and to_be_indexed(self.target_root, path):
+				self._sync_dir(path)
+			# File: sync file
+			elif os.path.isfile(path) and to_be_indexed(self.target_root, path):
+				self._sync_file(path)

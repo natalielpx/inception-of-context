@@ -15,7 +15,7 @@ from qdrant_client import QdrantClient, models
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 COLLECTION = os.getenv("QDRANT_COLLECTION", "chunks")
 TARGET_PATH = Path(os.getenv("TARGET_PATH", "/workspace"))
-EVENTS_LOG = Path(os.getenv("EVENTS_LOG", "/data/ioc_events.jsonl"))
+LOG_FILE = Path(os.getenv("LOG_FILE", "/data/ioc_events.jsonl"))
 API_URL = os.getenv("API_URL", "http://api:8000")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
@@ -110,7 +110,7 @@ def get_events(n: int = 50) -> list[dict]:
     if source_mode() == "api":
         raise NotImplementedError("api mode arrives in Part 2")  # TODO(p2): GET /events (SSE)
     try:
-        with EVENTS_LOG.open() as f:
+        with LOG_FILE.open() as f:
             lines = deque(f, maxlen=n)
     except FileNotFoundError:
         return []

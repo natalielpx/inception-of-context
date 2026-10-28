@@ -10,7 +10,6 @@ from indexer import Indexer
 from watcher import Watcher
 
 def main() -> int:
-	"""p1"""
 
 	# Take in target repository
 	if len(sys.argv) != 2:
@@ -21,6 +20,7 @@ def main() -> int:
 		print(f"Target repository not found: {target}", file=sys.stderr)
 		return 1
 
+	# Create indexer and launch 1st synchronisation
 	indexer = Indexer(
 		client = QdrantClient(
 			host=os.environ.get("QDRANT_HOST", "localhost"),
@@ -29,14 +29,12 @@ def main() -> int:
 		embedder=SentenceTransformer("all-MiniLM-L6-v2"),
 		target_root=target
 	)
-	with indexer.lock:
-		indexer.sync_dir(target)
+	indexer.sync_path(target)
 
-	# Watch mode
+	# Launch watcher and handle all changes
 	watcher = Watcher(
 		indexer,
-		target,
-		on_change=lambda kind, path: print(f"[watch] {kind}: {path}", flush=True),
+		target
 	)
 	watcher.start()
 
@@ -45,7 +43,6 @@ def main() -> int:
 	signal.signal(signal.SIGTERM, lambda *_: stop.set())
 	signal.signal(signal.SIGINT, lambda *_: stop.set())
 	stop.wait()
-
 	watcher.stop()
 	return 0
 
