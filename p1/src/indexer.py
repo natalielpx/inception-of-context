@@ -30,7 +30,7 @@ def print_chunks(chunks, show_text=True):
 
 class Indexer:
 
-	COLLECTION = "chunks"
+	COLLECTION = os.getenv("QDRANT_COLLECTION", "chunks")
 
 	def __init__(self, client: QdrantClient, embedder: SentenceTransformer, target_root: str):
 		self.client = client

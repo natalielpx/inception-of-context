@@ -140,3 +140,23 @@ def ask(question: str, k: int = 5, session_id: str | None = None) -> dict:
 def run_patch(intent: str, k: int = 5, max_attempts: int = 3) -> dict:
     """-> {status: success|failed|rejected, attempts_used, rolled_back, reason, final_patch, attempts}."""
     raise NotImplementedError("run_patch arrives in Part 3")
+
+
+import os
+import httpx
+
+CONTEXT_ENDPOINT = os.getenv("CONTEXT_ENDPOINT", "http://api:8000/context")
+ASK_ENDPOINT = os.getenv("ASK_ENDPOINT", "http://api:8000/ask")
+SSE_ENDPOINT = os.environ.get("SSE_ENDPOINT", "http://api:8000/events")
+
+async def retrieve(query: str, k: int = 5) -> dict:
+    _client = httpx.AsyncClient(base_url=API_URL, timeout=httpx.Timeout(180.0, connect=5.0))
+    r = await _client.post(CONTEXT_ENDPOINT, params={"query": query, "k": k})
+    r.raise_for_status()
+    return r.json()
+
+async def ask(query: str, k: int = 5) -> dict:
+    _client = httpx.AsyncClient(base_url=API_URL, timeout=httpx.Timeout(180.0, connect=5.0))
+    r = await _client.post(ASK_ENDPOINT, params={"query": query, "k": k})
+    r.raise_for_status()
+    return r.json()

@@ -1,9 +1,13 @@
 """IoC Architect dashboard. Each tab panel calls one build function; one timer feeds them all."""
 from itertools import takewhile
+import os
 
-from nicegui import ui
+import httpx
+
+from nicegui import ui, background_tasks
 
 import data
+from data import SSE_ENDPOINT
 from tabs import explorer, failed, fetch, files, overview, placeholders
 
 
@@ -15,6 +19,28 @@ def _key(event: dict) -> tuple:
 def index():
     ui.dark_mode(True)
     ui.query("body").classes("font-mono text-sm")
+
+    async def consume():
+        async with httpx.AsyncClient(timeout=None) as client:
+            try:
+                async with client.stream(
+                    "GET", SSE_ENDPOINT, headers={"Accept": "text/event-stream"}
+                ) as resp:
+                    ctype = resp.headers.get("content-type", "")
+                    print(f"status={resp.status_code} content-type={ctype}", flush=True)
+
+                    if "text/event-stream" not in ctype:
+                        body = await resp.aread()
+                        print(f"Unexpected response body: {body.decode(errors='replace')}", flush=True)
+                        return
+
+                    async for line in resp.aiter_lines():
+                        print(line, flush=True)
+            except Exception as e:
+                print(f"Error in SSE connection: {e}", flush=True)
+
+    task = background_tasks.create(consume())
+    ui.context.client.on_disconnect(task.cancel)
 
     with ui.header().classes("items-center gap-3 px-4 py-2 bg-slate-900"):
         ui.label("Inception-of-Context Architect").classes("text-base font-bold")

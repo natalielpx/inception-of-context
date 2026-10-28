@@ -17,6 +17,9 @@ services:
       QDRANT_COLLECTION: chunks
       TARGET_PATH: /workspace
       EVENTS_LOG: /ioc/events/events.jsonl
+      SSE_ENDPOINT: ${SSE_ENDPOINT:-http://api/events}
+      CONTEXT_ENDPOINT: ${CONTEXT_ENDPOINT:-http://api/context}
+      ASK_ENDPOINT: ${ASK_ENDPOINT:-http://api/ask}
     volumes:
       - ${TARGET_DIR:-./target}:/workspace:ro
       - index_events:/ioc/events/
@@ -31,6 +34,8 @@ services:
         - IOC_TARGET=/workspace
         - QDRANT_HOST=qdrant
         - QDRANT_PORT=6333
+        - QDRANT_COLLECTION=chunks
+        - EMBEDDING_MODEL=all-MiniLM-L6-v2
       volumes:
         - ./target:/workspace
       depends_on:
@@ -38,6 +43,7 @@ services:
 
   conv-model:
     image: ollama-with-curl:latest
+    profiles: ["p2", "p3"]
     build:
       context: .
       dockerfile_inline: |
@@ -66,11 +72,20 @@ services:
     ports:
       - "80:80"
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/')"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_COLLECTION=chunks
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - OLLAMA_HOST=http://conv-model:11434
+      - OLLAMA_MODEL=qwen2.5:3b
+    depends_on:
+      - qdrant
+      - conv-model
 
 volumes:
   qdrant_storage:
