@@ -4,6 +4,8 @@ from pathlib import PurePath
 from nicegui import run, ui
 
 LANGS = {".py": "python", ".yml": "yaml", ".yaml": "yaml", ".md": "markdown",
+         ".cpp": "cpp", ".hpp": "cpp", ".h": "cpp", ".cc": "cpp",
+		 ".tpp": "cpp", ".inl": "cpp", ".ipp": "cpp",
          ".json": "json", ".js": "javascript", ".ts": "typescript"}
 
 

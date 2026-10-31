@@ -5,6 +5,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 
 import files
+from indexer import Indexer, SyncError
 from logger import log_event
 
 class Watcher(FileSystemEventHandler):
@@ -13,7 +14,7 @@ class Watcher(FileSystemEventHandler):
 	WAIT = 0.3
 	FULL_SYNC = 30 
 
-	def __init__(self, indexer, target_root):
+	def __init__(self, indexer: Indexer, target_root):
 		self.indexer = indexer
 		self.target_root = Path(target_root)
 		self.pending = {}  # path -> last event time
@@ -60,18 +61,18 @@ class Watcher(FileSystemEventHandler):
 					ready.append(path)
 		return ready
 
+	def _sync_path(self, path: str):
+		try:
+			self.indexer.sync_path(path)
+		except SyncError as e:
+			for f, err in e.errors.items():
+				log_event("error", f, "error", {"msg": err})
+		except Exception:
+			log_event("error", path, "error")
+
 	def _sync_ready_paths(self):
 		for path in self._ready_paths():
-			try:
-				self.indexer.sync_path(path)
-			except Exception:
-				log_event("error", path, "error")
-
-	def _periodic_sync(self):
-		try:
-			self.indexer.sync_path(str(self.target_root))
-		except Exception:
-			log_event("error", str(self.target_root), "error")
+			self._sync_path(path)
 
 	def _run(self):
 		last_full = time.monotonic()
@@ -79,9 +80,9 @@ class Watcher(FileSystemEventHandler):
 			# Trigger synchronisation for changed files
 			self._sync_ready_paths()
 			# Trigger full synchronisation
-			# if time.monotonic() - last_full >= self.FULL_SYNC:
-			# 	self._periodic_sync()
-			# 	last_full = time.monotonic()
+			if time.monotonic() - last_full >= self.FULL_SYNC:
+				self._sync_path(str(self.target_root))
+				last_full = time.monotonic()
 
 	def start(self):
 		threading.Thread(target=self._run, daemon=True).start()

@@ -2,6 +2,7 @@
 
 Tamagotchi pet;
 
+// Simple main
 int main( void ) {
 	while (42) {
 		std::string action;

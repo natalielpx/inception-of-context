@@ -8,8 +8,6 @@ from sentence_transformers import SentenceTransformer
 from chunker import Chunker
 from files import to_be_indexed, files_to_be_indexed
 
-import traceback
-from logger import log
 
 def print_chunks(chunks, show_text=True):
     chunks = sorted(chunks, key=lambda c: (c.path, c.start_line, c.end_line))
@@ -29,6 +27,14 @@ def print_chunks(chunks, show_text=True):
             for i, line in enumerate(c.text.splitlines() or [""], start=c.start_line):
                 print(f"{i:5} | {line}")
     print(f"\n{len(chunks)} chunks total")
+
+
+class SyncError(Exception):
+	"""One or more files failed to sync; .errors maps path -> exception"""
+	def __init__(self, errors: dict[str, Exception]):
+		self.errors = errors
+		super().__init__(f"{len(errors)} file(s) failed: " + ", ".join(errors))
+
 
 class Indexer:
 
@@ -85,11 +91,8 @@ class Indexer:
 			return
 
 		# Obtain chunks
-		try:
-			chunks = self.chunker.chunk(filepath)
-			# print_chunks(chunks)
-		except:
-			return
+		chunks = self.chunker.chunk(filepath)
+		# print_chunks(chunks)
 		new_hashes = {c.point_id: c.hash_value for c in chunks}
 		old_hashes = self.hashmap.get(filepath, {})
 
@@ -138,11 +141,14 @@ class Indexer:
 			self.rm_chunks_by_path(gone)
 
 		# (Re-)index all target files
+		errors = {}
 		for f in files:
 			try:
-				self.sync_file(f)
+				self._sync_file(f)
 			except Exception as e:
-				print("error", f, detail=str(e))
+				errors[f] = e
+		if errors:
+			raise SyncError(errors)
 
 	def sync_path(self, path: str):
 		with self.lock:
