@@ -4,9 +4,11 @@ from pathlib import Path
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 
-import files
+from files import is_included_dir, is_included_file
 from indexer import Indexer, SyncError
 from logger import log_event
+
+EVENTS_IGNORED = ["opened", "closed_no_write"]
 
 class Watcher(FileSystemEventHandler):
 
@@ -24,32 +26,24 @@ class Watcher(FileSystemEventHandler):
 
 	# Method defined by FileSystemEventHandler
 	def on_any_event(self, e):
+		# Ignore unwanted events
+		if e.event_type in EVENTS_IGNORED:
+			return
+		if e.is_directory and e.event_type == "modified": # children report themselves
+			return
 		# Collect paths the event affects
+		paths = [e.src_path]
 		if e.event_type == "moved":
-			paths = [e.src_path, e.dest_path]
-		elif e.event_type in ("created", "modified", "deleted"):
-			paths = [e.src_path]
-		else:
-			return
-		# Skip folder's own "modified" event when it's child changes
-		if e.is_directory and e.event_type == "modified":
-			return
-		# Add path(s) to queue
+			paths.append(e.dest_path)
+		# Add wanted path(s) to queue
 		for path in paths:
-			if files.to_be_indexed(str(self.target_root), path):
-				log_event(e.event_type, path)
-				self._add_to_queue(path)
-
-	# time.monotonic() never jumps backwards if system clock changes
-	def _add_to_queue(self, path):
-		with self.lock:
-			self.pending[path] = time.monotonic()
-
-	def _nearest_existing_dir(self, path):
-		p = Path(path)
-		while not p.is_dir() and p != self.target_root:
-			p = p.parent
-		return p
+			if e.is_directory and not is_included_dir(self.target_root, path):
+				continue
+			elif not is_included_file(self.target_root, path):
+				continue
+			log_event(e.event_type, path)
+			with self.lock:
+				self.pending[path] = time.monotonic()
 
 	def _ready_paths(self):
 		now = time.monotonic()
@@ -66,9 +60,9 @@ class Watcher(FileSystemEventHandler):
 			self.indexer.sync_path(path)
 		except SyncError as e:
 			for f, err in e.errors.items():
-				log_event("error", f, "error", {"msg": err})
-		except Exception:
-			log_event("error", path, "error")
+				log_event("error", f, "error", {"msg": f"{type(err).__name__}: {err}"})
+		except Exception as e:
+			log_event("error", path, "error", {"msg": f"{type(e).__name__}: {e}"})
 
 	def _sync_ready_paths(self):
 		for path in self._ready_paths():

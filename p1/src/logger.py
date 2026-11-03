@@ -25,7 +25,7 @@ _log_lock = threading.Lock()
 
 def log_event(kind: str, path: str, level: str = "info", **fields) -> None:
 	lvl = _LEVELS[level]
-	# Append to the dashboard’s JSONL feed
+	# Append to dashboard’s JSONL feed
 	try:
 		with _log_lock, LOG_FILE.open("a", encoding="utf-8") as f:
 			f.write(json.dumps({
@@ -36,6 +36,6 @@ def log_event(kind: str, path: str, level: str = "info", **fields) -> None:
 				"path": path
 			}, ensure_ascii=False) + "\n")
 	except OSError:
-		log.warning("Could not write event to %s", LOG_FILE, exc_info=True)
+		log.warning("Failed to write to %s", LOG_FILE, exc_info=True)
 	# Write into stdout
 	log.log(lvl, "%s %s %s", kind, path, fields)

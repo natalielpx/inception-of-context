@@ -23,7 +23,10 @@ _client: QdrantClient | None = None
 def client() -> QdrantClient:
 	global _client 
 	if _client is None:
-		_client = QdrantClient(url=QDRANT_URL, timeout=5)
+		_client = QdrantClient(
+				url=QDRANT_URL,
+				timeout=5
+			)
 	return _client
 
 # Qdrant filter
@@ -38,7 +41,13 @@ def _path_filter(path: str | None) -> Filter | None:
 def _scroll_all(flt=None, payload=True) -> list:
 	points, cursor = [], None
 	while True:
-		page, cursor = client().scroll(COLLECTION, scroll_filter=flt, limit=256, offset=cursor, with_payload=payload)
+		page, cursor = client().scroll(
+			COLLECTION,
+			scroll_filter=flt,
+			limit=256,
+			offset=cursor,
+			with_payload=payload
+		)
 		points += page
 		if cursor is None:
 			return points
@@ -49,7 +58,7 @@ def source_mode() -> str:
 	"""Swicth between direct (p1) and api (p2 & p3)"""
 	mode = os.getenv("IOC_SOURCE", "direct").lower()
 	if mode not in ("api", "direct"):
-		raise ValueError(f"IOC_SOURCE must be 'api' or 'direct', got {mode!r}")
+		raise ValueError("IOC_SOURCE must be 'api' or 'direct'")
 	return mode
 
 
@@ -89,8 +98,8 @@ def get_status() -> dict:
 		"qdrant_url": QDRANT_URL,
 		"collection": COLLECTION,
 		"embedding_model": EMBEDDING_MODEL,
-		"ask_model": None,   # set by the API in Part 2
-		"code_model": None,  # set by the API in Part 3
+		"ask_model": None,
+		"code_model": None,
 	}
 
 # OVERVIEW: live activity
@@ -130,11 +139,22 @@ def get_file(path: str) -> dict:
 	if not full.is_relative_to(root):
 		return {"error": f"path outside target: {path}"}
 	# match the chunk whether the indexer stored it relative or absolute
-	flt = Filter(must=[FieldCondition(key="path", match=MatchAny(any=[path, str(full)]))])
-	points = _scroll_all(flt, payload=["start_line", "end_line", "kind"])
+	flt = Filter(must=[
+			FieldCondition(key="path", match=MatchAny(any=[path, str(full)])),
+		])
+	payload = [
+		"start_line",
+		"end_line",
+		"kind"
+	]
+	points = _scroll_all(flt, payload)
 	chunks = sorted(({"id": str(p.id), **p.payload} for p in points), key=lambda c: c["start_line"])
 	if not full.is_file():
-		return {"error": "file was deleted", "missing": True, "chunks": chunks}
+		return {
+			"error": "file was deleted",
+			"missing": True,
+			"chunks": chunks
+		}
 	content = full.read_text(errors="replace")
 	return {
 		"path": path,
@@ -158,5 +178,14 @@ def ask(question: str, k: int = 5, session_id: str | None = None) -> dict:
 
 
 def run_patch(intent: str, k: int = 5, max_attempts: int = 3) -> dict:
-	"""-> {status: success|failed|rejected, attempts_used, rolled_back, reason, final_patch, attempts}."""
+	"""
+		-> {
+			status: success|failed|rejected,
+			attempts_used,
+			rolled_back,
+			reason,
+			final_patch,
+			attempts
+		}
+	"""
 	raise NotImplementedError("run_patch arrives in Part 3")

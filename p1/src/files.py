@@ -11,46 +11,43 @@ INCL_EXTS = {
 }
 
 
-def _is_binary(path: Path) -> bool:
-	"""Catches binary files with included extensions"""
-	try:
-		with open(path, "rb") as fh:
-			return b"\0" in fh.read(8192)
-	except OSError:
-		return False  # unreadable/vanished: let indexer decide
-
 def _file_ok(name: str) -> bool:
 	return not name.startswith(".") and Path(name).suffix.lower() in INCL_EXTS
 
 def _dir_ok(name: str) -> bool:
 	return not name.startswith(".") and name.lower() not in EXCL_DIRS
 
-def to_be_indexed(root: str, path: str) -> bool:
-	"""Should this path be indexed? Works for deleted files too."""
-	p = Path(path)
+def _rel_parts(root: str, path: str):
 	try:
-		rel = p.resolve().relative_to(Path(root).resolve())
+		return Path(os.path.abspath(path)).relative_to(os.path.abspath(root)).parts
 	except ValueError:
+		return None
+	
+def is_included_dir(root: str, path: str):
+	parts = _rel_parts(root, path)
+	if parts is None:
 		return False
-	if not rel.parts:
+	if not (all(_dir_ok(d) for d in parts)):
 		return False
-	*dirs, name = rel.parts
-	if not (all(_dir_ok(d) for d in dirs) and _file_ok(name)):
+	return True
+
+def is_included_file(root: str, path: str):
+	path = os.path.abspath(path)
+	if not is_included_dir(root, os.path.dirname(path)):
 		return False
-	# return False
-	return not (p.is_file() and _is_binary(p))
+	return  _file_ok(os.path.basename(path))
 
 
-def files_to_be_indexed(root: str, path: str) -> list[Path]:
-	"""Files to index under `path` (file,directory, or missing)"""
+def collect_files(root: str, path: str) -> list[str]:
+	"""Files to index under `path` (file, directory, or missing)"""
 	p = Path(path)
-	if p.is_file():
-		candidates = [p]
-	elif p.is_dir():
+	if p.is_file() and is_included_file(root, path):
+		return [path]
+	elif p.is_dir() and is_included_dir(root, path):
 		candidates = []
 		for cur, dirnames, filenames in os.walk(p):
-			dirnames[:] = [d for d in dirnames if _dir_ok(d)]  # prune early
-			candidates += [Path(cur, f) for f in filenames]
+			dirnames[:] = [d for d in dirnames if _dir_ok(d)]
+			candidates += [os.path.join(cur, f) for f in filenames if _file_ok(f)]
 	else:
 		return []
-	return [f for f in candidates if to_be_indexed(root, f)]
+	return candidates

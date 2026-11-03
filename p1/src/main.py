@@ -1,7 +1,4 @@
-import os
-import signal
-import sys
-import threading
+import os, signal, sys, threading
 from pathlib import Path
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
@@ -11,16 +8,14 @@ from watcher import Watcher
 
 def main() -> int:
 
-	# Take in target repository
-	if len(sys.argv) != 2:
-		print(f"Usage: {sys.argv[0]} <target_path>", file=sys.stderr)
-		return 1
-	target = Path(sys.argv[1]).expanduser().resolve()
-	if not target.is_dir():
-		print(f"Target repository not found: {target}", file=sys.stderr)
-		return 1
+	target = Path(os.environ.get("TARGET_PATH", "/workspace")).resolve()
+	try:
+		next(target.iterdir(), None)
+	except NotADirectoryError:
+		sys.exit(f"TARGET_PATH is not a directory: {target}")
+	except OSError as err:
+		sys.exit(f"cannot open TARGET_PATH {target}: {err.strerror}")
 
-	# Create indexer and launch 1st synchronisation
 	indexer = Indexer(
 		client = QdrantClient(
 			host=os.environ.get("QDRANT_HOST", "localhost"),
@@ -31,14 +26,12 @@ def main() -> int:
 	)
 	indexer.sync_path(target)
 
-	# Launch watcher and handle all changes
 	watcher = Watcher(
 		indexer,
 		target
 	)
 	watcher.start()
 
-	# Run until docker stop (SIGTERM) or Ctrl+C (SIGINT)
 	stop = threading.Event()
 	signal.signal(signal.SIGTERM, lambda *_: stop.set())
 	signal.signal(signal.SIGINT, lambda *_: stop.set())

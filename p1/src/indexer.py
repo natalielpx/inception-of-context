@@ -1,36 +1,14 @@
-import os
-import threading
+import os, threading
 from dataclasses import asdict
 from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance, FilterSelector, Filter, FieldCondition, MatchAny
+from qdrant_client.models import VectorParams, Distance, Filter, FieldCondition, MatchAny
 from sentence_transformers import SentenceTransformer
 
 from chunker import Chunker
-from files import to_be_indexed, files_to_be_indexed
-
-
-def print_chunks(chunks, show_text=True):
-    chunks = sorted(chunks, key=lambda c: (c.path, c.start_line, c.end_line))
-    prev_path, prev_end = None, 0
-    for c in chunks:
-        if c.path != prev_path:
-            print(f"\n{'#' * 80}\n# {c.path}\n{'#' * 80}")
-            prev_path, prev_end = c.path, 0
-        if c.start_line <= prev_end:
-            print(f"!! OVERLAP: starts at {c.start_line}, previous ended at {prev_end}")
-        elif c.start_line > prev_end + 1:
-            print(f"   (gap: lines {prev_end + 1}-{c.start_line - 1} not in any chunk)")
-        prev_end = max(prev_end, c.end_line)
-
-        print(f"\n=== {c.chunk_id}  [{c.kind}]  {c.hash_value[:8]} ===")
-        if show_text:
-            for i, line in enumerate(c.text.splitlines() or [""], start=c.start_line):
-                print(f"{i:5} | {line}")
-    print(f"\n{len(chunks)} chunks total")
+from files import is_included_dir, is_included_file, collect_files
 
 
 class SyncError(Exception):
-	"""One or more files failed to sync; .errors maps path -> exception"""
 	def __init__(self, errors: dict[str, Exception]):
 		self.errors = errors
 		super().__init__(f"{len(errors)} file(s) failed: " + ", ".join(errors))
@@ -46,14 +24,16 @@ class Indexer:
 		self.target_root = target_root
 		self.chunker = Chunker()
 		if not self.client.collection_exists(self.COLLECTION):
+			size = self.embedder.get_embedding_dimension()
+			distance = Distance.COSINE
 			self.client.create_collection(
 				collection_name=self.COLLECTION,
-				vectors_config=VectorParams(size=self.embedder.get_sentence_embedding_dimension(), distance=Distance.COSINE),
+				vectors_config=VectorParams(size, distance),
 			)
-		self.hashmap = self.load_hashmap()
-		self.lock = threading.RLock() # RLock lets the thread that already holds it acquire it again
+		self.hashmap = self._load_hashmap()
+		self.lock = threading.RLock()
 
-	def load_hashmap(self) -> dict:
+	def _load_hashmap(self) -> dict:
 		hashmap = {}
 		offset = None
 		while True:
@@ -71,53 +51,52 @@ class Indexer:
 				break
 		return hashmap
 
-	def rm_chunks_by_path(self, files: list[str]):
+	def _rm_chunks_by_paths(self, files: list[str]):
+		filter = Filter(must=[FieldCondition(key="path", match=MatchAny(any=files))])
 		self.client.delete(
 			collection_name=self.COLLECTION,
-			points_selector=FilterSelector(
-				filter=Filter(must=[FieldCondition(key="path", match=MatchAny(any=files))])
-			),
+			points_selector=filter,
 			wait=True,
 		)
 		for f in files:
 			self.hashmap.pop(f, None)
-	
-	def _sync_file(self, filepath: str):
 
-		# Non-existent or not to be indexed
-		if not os.path.isfile(filepath) or not to_be_indexed(self.target_root, filepath):
-			if filepath in self.hashmap:
-				self.rm_chunks_by_path([filepath])
-			return
-
-		# Obtain chunks
-		chunks = self.chunker.chunk(filepath)
-		# print_chunks(chunks)
-		new_hashes = {c.point_id: c.hash_value for c in chunks}
-		old_hashes = self.hashmap.get(filepath, {})
-
-		# Delete stale chunks via point_id
-		stale = list(old_hashes.keys() - new_hashes.keys())
-		if stale:
+	def _rm_chunks_by_point_ids(self, p_ids: list[str]):
+		if p_ids:
 			self.client.delete(
 				collection_name=self.COLLECTION,
-				points_selector=[p_id for p_id in stale],
+				points_selector=[p_id for p_id in p_ids],
 				wait=True,
 			)
 
-		# Update changed chunks (determined via changed hash value)
-		changed = [c for c in chunks if old_hashes.get(c.point_id) != c.hash_value]
-		if changed:
+	def _upsert_chunks(self, chunks):
+		if chunks:
 			self.client.upload_collection(
 				collection_name=self.COLLECTION,
-				ids=[c.point_id for c in changed],
-				vectors=self.embedder.encode([c.text for c in changed]).tolist(),
-				payload=[asdict(c) for c in changed],
+				ids=[c.point_id for c in chunks],
+				vectors=self.embedder.encode([c.text for c in chunks]).tolist(),
+				payload=[asdict(c) for c in chunks],
 				batch_size=64,
 				wait=True,
 			)
+	
+	def _sync_file(self, filepath: str):
 
-		# Update dict of target file in hashmap
+		if not os.path.isfile(filepath) or not is_included_file(self.target_root, filepath):
+			if filepath in self.hashmap:
+				self._rm_chunks_by_paths([filepath])
+			return
+
+		chunks = self.chunker.chunk(filepath)
+		new_hashes = {c.point_id: c.hash_value for c in chunks}
+		old_hashes = self.hashmap.get(filepath, {})
+
+		stale = list(old_hashes.keys() - new_hashes.keys())
+		self._rm_chunks_by_point_ids(stale)
+
+		changed = [c for c in chunks if old_hashes.get(c.point_id) != c.hash_value]
+		self._upsert_chunks(changed)
+
 		self.hashmap[filepath] = new_hashes
 
 	def _sync_dir(self, dirpath: str):
@@ -126,19 +105,19 @@ class Indexer:
 		prefix = str(dirpath).rstrip("/") + "/"
 		indexed_files = [p for p in self.hashmap if p.startswith(prefix)]
 
-		# Non-existent, not to be indexed, or deleted
-		if not os.path.isdir(dirpath) or not to_be_indexed(self.target_root, dirpath):
+		# Non-existent, not to be indexed, deleted
+		if not os.path.isdir(dirpath) or not is_included_dir(self.target_root, dirpath):
 			if indexed_files:
-				self.rm_chunks_by_path(indexed_files)
+				self._rm_chunks_by_paths(indexed_files)
 			return
 
 		# Walk through target directory and obtain target files
-		files = files_to_be_indexed(self.target_root, dirpath)
+		files = collect_files(self.target_root, dirpath)
 
 		# Delete chunks of files that no longer exist
 		gone = list(set(indexed_files) - set(files))
 		if gone:
-			self.rm_chunks_by_path(gone)
+			self._rm_chunks_by_paths(gone)
 
 		# (Re-)index all target files
 		errors = {}
@@ -152,9 +131,9 @@ class Indexer:
 
 	def sync_path(self, path: str):
 		with self.lock:
-			# Folder: sync everything inside
-			if os.path.isdir(path) and to_be_indexed(self.target_root, path):
+			if os.path.isdir(path):
 				self._sync_dir(path)
-			# File: sync file
-			elif os.path.isfile(path) and to_be_indexed(self.target_root, path):
+			elif os.path.isfile(path):
 				self._sync_file(path)
+			else:
+				self._rm_chunks_by_paths([path])

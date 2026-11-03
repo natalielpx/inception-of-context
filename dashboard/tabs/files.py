@@ -4,7 +4,7 @@ from nicegui import ui
 
 import data
 from . import code, failed, fetch, language
-
+from styles import TRUNC
 
 def build():
 	state = {"path": None}
@@ -14,11 +14,10 @@ def build():
 		if not files or failed(files):
 			return
 		for f in files:
-			selected = "bg-slate-700" if f["path"] == state["path"] else ""
-			with ui.row() \
-					.classes(f"w-full no-wrap cursor-pointer px-2 py-1 rounded {selected}") \
-					.on("click", lambda p=f["path"]: open_file(p)):
-				ui.label(f["path"]).classes("truncate")
+			with ui.row().classes("w-full no-wrap cursor-pointer px-2 py-1 rounded").on("click", lambda p=f["path"]: open_file(p)) as row:
+				if f["path"] == state["path"]:
+					row.classes("bg-slate-700")
+				ui.label(f["path"]).classes(TRUNC)
 				ui.label(str(f["chunks"])).classes("ml-auto text-grey-5")
 
 	@ui.refreshable
@@ -32,10 +31,20 @@ def build():
 		with ui.row().classes("w-full items-baseline gap-3"):
 			ui.label(file["path"]).classes("text-base")
 			ui.space()
-			ui.label(f"{file['lines']} lines · {file['bytes']} bytes · {len(file['chunks'])} chunks").classes("text-grey-5")
+			stats = (
+				f"{file['lines']} lines",
+				f"{file['bytes']} bytes",
+				f"{len(file['chunks'])} chunks",
+			)
+			ui.label(" · ".join(stats)).classes("text-grey-5")
 		lines, lang = file["content"].splitlines(), language(file["path"])
 		for n, c in enumerate(file["chunks"], 1):
-			ui.label(f"▶ chunk #{n} — lines {c['start_line']}-{c['end_line']} · {c.get('kind', '')}").classes("text-primary mt-2")
+			parts = (
+				f"▶ chunk #{n}",
+				f"lines {c['start_line']}-{c['end_line']}",
+				c.get("kind", ""),
+			)
+			ui.label(" · ".join(p for p in parts if p)).classes("text-primary mt-2")
 			code("\n".join(lines[c["start_line"] - 1:c["end_line"]]), lang)
 
 	async def open_file(path: str):
