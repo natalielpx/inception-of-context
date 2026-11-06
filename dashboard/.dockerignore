@@ -1,2 +1,7 @@
-__pycache__/
 .nicegui/
+.git
+**/__pycache__
+**/.venv
+**/venv
+qdrant_storage/
+*.ioc.tmp

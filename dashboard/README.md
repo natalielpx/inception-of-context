@@ -26,7 +26,7 @@ cd p1/dashboard && QDRANT_URL=http://localhost:6333 TARGET_PATH=../../demo LOG_F
 | `TARGET_PATH` | `/workspace` | `direct` (mounted read-only) |
 | `LOG_FILE` | `/data/ioc_events.jsonl` | `direct`; must be **outside** the target, or the watcher sees its own writes |
 | `API_URL` | `http://api:8000` | `api` (Part 2+) |
-| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | display only |
+| `EMBEDDING_MODEL` | `jinaai/jina-embeddings-v2-base-code` | display only |
 
 ### `IOC_SOURCE`
 

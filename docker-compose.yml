@@ -2,30 +2,108 @@ services:
 
   qdrant:
     image: qdrant/qdrant:v1.19.2
+    container_name: ioc-qdrant
     volumes:
       - qdrant_storage:/qdrant/storage
     ports:
       - "6333:6333"   # REST API
       - "6334:6334"   # gRPC, used internally by the client for faster transfers
 
-  # embd-model:
-  #   image: ai/all-minilm-l6-v2-vllm
-  #   command: --model-id sentence-transformers/all-MiniLM-L6-v2
-  #   volumes:
-  #     - embd_model:/data                   # model is downloaded here once
-  #   # environment:
-  #   #   - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
-  #   ports: ["8080:80"]
+  embed-model-init:
+    build: p1/
+    command: ["python", "src/embedder.py"]
+    environment:
+      EMBED_MODEL: "jinaai/jina-embeddings-v2-base-code"
+      FASTEMBED_CACHE: "/ioc/cache/fastembed"
+    volumes:
+      - fastembed_cache:${FASTEMBED_CACHE:-/ioc/cache/fastembed}
+
+  indexer:
+      build: p1/
+      container_name: ioc-p1
+      environment:
+        TARGET_PATH: /workspace
+        QDRANT_HOST: qdrant
+        QDRANT_PORT: 6333
+        LOG_FILE: /ioc/events/events.jsonl
+        LOG_LEVEL: INFO
+        QDRANT_COLLECTION: chunks
+        EMBEDING_MODEL: "jinaai/jina-embeddings-v2-base-code"
+        FASTEMBED_CACHE: "/ioc/cache/fastembed"
+      volumes:
+        - ./target:/workspace
+        - fastembed_cache:${FASTEMBED_CACHE:-/ioc/cache/fastembed}
+        - index_events:/ioc/events/
+      depends_on:
+        qdrant: 
+          condition: service_started
+        embed-model-init:
+          condition: service_completed_successfully
+
+  conv-model:
+    image: ollama-with-curl:latest
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM ollama/ollama:latest
+        RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+    container_name: ollama-qwen
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+    # Automatically pulls the model on container startup
+    entrypoint: [ "/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull qwen2.5:3b && wait" ]
+    healthcheck:
+      # Verifies the Ollama API responds AND that the specific model is loaded/available
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/tags | grep -q 'qwen2.5:3b'"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s # Gives time for the initial download of the 3B model
+
+  api:
+    build: p2/
+    container_name: ioc-p2
+    ports:
+      - "80:80"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_COLLECTION=chunks
+      - EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-code
+      - OLLAMA_HOST=http://conv-model:11434
+      - OLLAMA_MODEL=qwen2.5:3b
+    volumes:
+      - fastembed_cache:${FASTEMBED_CACHE:-/ioc/cache/fastembed}
+    depends_on:
+      qdrant:
+        condition: service_started
+      embed-model-init:
+        condition: service_completed_successfully
+      conv-model:
+        condition: service_started
 
   dashboard:
     build: ./dashboard
-    profiles: ["p1", "p2", "p3"]
+    container_name: ioc-dashboard
     environment:
       IOC_SOURCE: direct
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: chunks
       TARGET_PATH: /workspace
       LOG_FILE: /ioc/events/events.jsonl
+      EMBEDDING_MODEL: "jinaai/jina-embeddings-v2-base-code"
+      SSE_ENDPOINT: ${SSE_ENDPOINT:-http://api/events}
+      CONTEXT_ENDPOINT: ${CONTEXT_ENDPOINT:-http://api/context}
+      ASK_ENDPOINT: ${ASK_ENDPOINT:-http://api/ask}
     volumes:
       - ${TARGET_DIR:-./target}:/workspace:ro
       - index_events:/ioc/events/
@@ -34,21 +112,8 @@ services:
     ports:
       - "8080:8080"
 
-  indexer:
-      build: ./p1
-      environment:
-        IOC_TARGET: /workspace
-        QDRANT_HOST: qdrant
-        QDRANT_PORT: 6333
-        LOG_FILE: /ioc/events/events.jsonl
-        LOG_LEVEL: INFO
-      volumes:
-        - ./target:/workspace
-        - index_events:/ioc/events/
-      depends_on:
-        - qdrant
-
 volumes:
   qdrant_storage:
   index_events:
-  embd_model:
+  ollama_data:
+  fastembed_cache:

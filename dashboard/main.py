@@ -1,11 +1,15 @@
 """IoC Architect dashboard"""
 
-from nicegui import ui
+import os, httpx
+from nicegui import ui, background_tasks
 from itertools import takewhile
 
 import data
-from tabs import failed, fetch, files, overview, placeholders
+from data import SSE_ENDPOINT
+from tabs import failed, fetch, files, overview
 from styles import HEADER, TABS, TITLE
+from src.ask.panel import AskRetrievePanel
+from src.patch.panel import PatchLoopPanel
 
 SITE_TITLE = "Inception-of-Context"
 EXTERNAL_TABS = {"Qdrant Explorer": "http://localhost:6333/dashboard"}
@@ -22,6 +26,28 @@ def index():
 	ui.dark_mode(True)
 	ui.query("body").classes("font-mono text-sm")
 
+	async def consume():
+		async with httpx.AsyncClient(timeout=None) as client:
+			try:
+				async with client.stream(
+					"GET", SSE_ENDPOINT, headers={"Accept": "text/event-stream"}
+				) as resp:
+					ctype = resp.headers.get("content-type", "")
+					print(f"status={resp.status_code} content-type={ctype}", flush=True)
+
+					if "text/event-stream" not in ctype:
+						body = await resp.aread()
+						print(f"Unexpected response body: {body.decode(errors='replace')}", flush=True)
+						return
+
+					async for line in resp.aiter_lines():
+						print(line, flush=True)
+			except Exception as e:
+				print(f"Error in SSE connection: {e}", flush=True)
+
+	task = background_tasks.create(consume())
+	ui.context.client.on_disconnect(task.cancel)
+
 	# ==== HEADER ====
 
 	with ui.header().classes(HEADER):
@@ -32,7 +58,7 @@ def index():
 	def _set_live_badge(is_live: bool) -> None:
 		if is_live:
 			live.set_text("● live")
-			live.props(color='positive')
+			live.props("color='positive'")
 		else:
 			live.set_text("○ offline")
 			live.props("color='grey-7'")
@@ -50,9 +76,9 @@ def index():
 		with ui.tab_panel(tab["Files"]):
 			update_files = files.build()
 		with ui.tab_panel(tab["Ask & Retrieve"]):
-			placeholders.ask_and_retrieve()
+			AskRetrievePanel()
 		with ui.tab_panel(tab["Patch Loop"]):
-			placeholders.patch_loop()
+			PatchLoopPanel()
 
 	# Stay on current panel when opening new browser tab
 	current = {"tab": tab["Overview"]}

@@ -16,7 +16,7 @@ COLLECTION = os.getenv("QDRANT_COLLECTION", "chunks")
 TARGET_PATH = Path(os.getenv("TARGET_PATH", "/workspace"))
 LOG_FILE = Path(os.getenv("LOG_FILE", "/data/ioc_events.jsonl"))
 API_URL = os.getenv("API_URL", "http://api:8000")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code")
 
 # ==== QDRANT CLIENT ====
 _client: QdrantClient | None = None
@@ -164,28 +164,33 @@ def get_file(path: str) -> dict:
 		"chunks": chunks,
 	}
 
+# ==== P2 ====
 
-# ---- Part 2-3 contract (not implemented yet) ----
+import os
+import httpx
 
-def retrieve(query: str, k: int = 5) -> list[dict]:
-	"""POST /context -> chunks with a `score` key."""
-	raise NotImplementedError("retrieve arrives in Part 2")
+CONTEXT_ENDPOINT = os.getenv("CONTEXT_ENDPOINT", "http://api:8000/context")
+ASK_ENDPOINT = os.getenv("ASK_ENDPOINT", "http://api:8000/ask")
+SSE_ENDPOINT = os.environ.get("SSE_ENDPOINT", "http://api:8000/events")
 
+async def retrieve(query: str, k: int = 5) -> dict:
+    _client = httpx.AsyncClient(base_url=API_URL, timeout=httpx.Timeout(180.0, connect=5.0))
+    r = await _client.post(CONTEXT_ENDPOINT, params={"query": query, "k": k})
+    r.raise_for_status()
+    return r.json()
 
-def ask(question: str, k: int = 5, session_id: str | None = None) -> dict:
-	"""POST /ask -> {answer, session_id, resolved_facts, sources}."""
-	raise NotImplementedError("ask arrives in Part 2")
+async def ask(query: str, k: int = 5) -> dict:
+    _client = httpx.AsyncClient(base_url=API_URL, timeout=httpx.Timeout(180.0, connect=5.0))
+    r = await _client.post(ASK_ENDPOINT, params={"query": query, "k": k})
+    r.raise_for_status()
+    return r.json()
 
+# ==== P3 ====
 
-def run_patch(intent: str, k: int = 5, max_attempts: int = 3) -> dict:
-	"""
-		-> {
-			status: success|failed|rejected,
-			attempts_used,
-			rolled_back,
-			reason,
-			final_patch,
-			attempts
-		}
-	"""
-	raise NotImplementedError("run_patch arrives in Part 3")
+PATCH_ENDPOINT = os.getenv("PATCH_ENDPOINT", "http://api:8000/patch")
+
+async def patch(query: str, k: int = 3, max_attempts: int = 3) -> dict:
+	_client = httpx.AsyncClient(base_url=API_URL, timeout=httpx.Timeout(600.0, connect=5.0))
+	r = await _client.post(PATCH_ENDPOINT, params={"query": query, "k": k, "max_attempts": max_attempts})
+	r.raise_for_status()
+	return r.json()
