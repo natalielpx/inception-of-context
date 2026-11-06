@@ -1,9 +1,11 @@
 import os, threading
 from dataclasses import asdict
+from fastembed import TextEmbedding
+from pathlib import Path
 from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance, Filter, FieldCondition, MatchAny
-from sentence_transformers import SentenceTransformer
+from qdrant_client.models import Filter, FieldCondition, MatchAny
 
+import vectordb
 from chunker import Chunker
 from files import is_included_dir, is_included_file, collect_files
 
@@ -16,20 +18,17 @@ class SyncError(Exception):
 
 class Indexer:
 
-	COLLECTION = os.getenv("QDRANT_COLLECTION", "chunks")
-
-	def __init__(self, client: QdrantClient, embedder: SentenceTransformer, target_root: str):
+	def __init__(self,
+	    client: QdrantClient,
+		embedder: TextEmbedding,
+		target_root: Path,
+	):
 		self.client = client
 		self.embedder = embedder
 		self.target_root = target_root
 		self.chunker = Chunker()
-		if not self.client.collection_exists(self.COLLECTION):
-			size = self.embedder.get_embedding_dimension()
-			distance = Distance.COSINE
-			self.client.create_collection(
-				collection_name=self.COLLECTION,
-				vectors_config=VectorParams(size, distance),
-			)
+		vectordb.ensure_collection()
+		self.collection = vectordb.COLLECTION
 		self.hashmap = self._load_hashmap()
 		self.lock = threading.RLock()
 
@@ -38,7 +37,7 @@ class Indexer:
 		offset = None
 		while True:
 			points, offset = self.client.scroll(
-				collection_name=self.COLLECTION,
+				collection_name=self.collection,
 				limit=256,
 				offset=offset,
 				with_payload=["path", "hash_value"]
@@ -54,7 +53,7 @@ class Indexer:
 	def _rm_chunks_by_paths(self, files: list[str]):
 		filter = Filter(must=[FieldCondition(key="path", match=MatchAny(any=files))])
 		self.client.delete(
-			collection_name=self.COLLECTION,
+			collection_name=self.collection,
 			points_selector=filter,
 			wait=True,
 		)
@@ -64,7 +63,7 @@ class Indexer:
 	def _rm_chunks_by_point_ids(self, p_ids: list[str]):
 		if p_ids:
 			self.client.delete(
-				collection_name=self.COLLECTION,
+				collection_name=self.collection,
 				points_selector=[p_id for p_id in p_ids],
 				wait=True,
 			)
@@ -72,9 +71,9 @@ class Indexer:
 	def _upsert_chunks(self, chunks):
 		if chunks:
 			self.client.upload_collection(
-				collection_name=self.COLLECTION,
+				collection_name=self.collection,
 				ids=[c.point_id for c in chunks],
-				vectors=self.embedder.encode([c.text for c in chunks]).tolist(),
+				vectors=self.embedder.passage_embed([c.text for c in chunks]),
 				payload=[asdict(c) for c in chunks],
 				batch_size=64,
 				wait=True,

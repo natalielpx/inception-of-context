@@ -1,7 +1,6 @@
-import logging
-import sys
-import json, os, threading, time
+import json, logging, sys, os, threading, time
 from pathlib import Path
+
 
 LOG_FILE = Path(os.environ.get("LOG_FILE", "/ioc/events/events.jsonl"))
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -11,6 +10,7 @@ _LEVELS: dict[str, int] = {
     "warning": logging.WARNING,
     "error": logging.ERROR,
 }
+
 
 logging.basicConfig(
 	level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -22,6 +22,7 @@ logging.getLogger("watchdog").setLevel(logging.WARNING)
 log = logging.getLogger("watcher")
 
 _log_lock = threading.Lock()
+
 
 def log_event(kind: str, path: str, level: str = "info", **fields) -> None:
 	lvl = _LEVELS[level]

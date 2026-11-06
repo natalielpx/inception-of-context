@@ -1,11 +1,8 @@
-import hashlib
-import pprint
-import tree_sitter_cpp as tscpp
-import tree_sitter_yaml as tsyml
-import uuid
+import hashlib, uuid
+import tree_sitter_cpp as tscpp, tree_sitter_yaml as tsyml
 from dataclasses import dataclass, field
 from pathlib import Path
-from tree_sitter import Language, Parser, Query, QueryCursor
+from tree_sitter import Language, Parser
 
 
 @dataclass
@@ -30,7 +27,7 @@ class Chunk:
 class Chunker:
 	
 	YML_CODE = {".yml", ".yaml"}
-	CPP_CODE = {".cpp", ".hpp", ".h", ".cc", ".tpp", ".inl", ".tpp", ".ipp"}
+	CPP_CODE = {".cpp", ".hpp", ".h", ".cc", ".tpp", ".inl", ".ipp"}
 	TYPES = frozenset({
 		"function_definition",
 		"class_specifier",
@@ -42,9 +39,11 @@ class Chunker:
 	})
 	OTHER = -1
 
+
 	def __init__(self):
 		self.parser_yml = Parser(Language(tsyml.language()))
 		self.parser_cpp = Parser(Language(tscpp.language()))
+
 
 	@staticmethod
 	def rows(n, nlines):
@@ -52,6 +51,7 @@ class Chunker:
 		start = n.start_point[0]
 		end = n.end_point[0] - 1 if n.end_point[1] == 0 else n.end_point[0]
 		return start, min(end, nlines - 1)
+
 
 	def _select_yml(self, data, lines):
 
@@ -63,6 +63,7 @@ class Chunker:
 					nodes.extend(c for c in m.children if c.type == "block_mapping_pair" or c.is_error)
 		comments = {i for i, l in enumerate(lines) if l.lstrip().startswith("#")}
 		return nodes, comments
+
 
 	def _select_cpp(self, data, lines):
 
@@ -80,9 +81,11 @@ class Chunker:
 		nodes = [n for n in children if n.type in self.TYPES]
 		return nodes, comments
 
+
 	def _from_file(self, filepath: str, text: str) -> Chunk:
 		return Chunk(filepath, "non-code", text, 1)
-	
+
+
 	def _from_lines(self, filepath, lines, nodes, comments):
 
 		owner = [None] * len(lines)
@@ -118,6 +121,7 @@ class Chunker:
 				chunks.append(chunk)
 			start = row
 		return chunks
+
 
 	def chunk(self, filepath: str) -> list[Chunk]:
 

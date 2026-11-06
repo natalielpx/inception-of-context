@@ -10,11 +10,13 @@ from logger import log_event
 
 EVENTS_IGNORED = ["opened", "closed_no_write"]
 
+
 class Watcher(FileSystemEventHandler):
 
 	DELAY = 1.5
 	WAIT = 0.3
 	FULL_SYNC = 30 
+
 
 	def __init__(self, indexer: Indexer, target_root):
 		self.indexer = indexer
@@ -23,6 +25,7 @@ class Watcher(FileSystemEventHandler):
 		self.lock = threading.Lock()
 		self.observer = None
 		self.stopped = threading.Event()
+
 
 	# Method defined by FileSystemEventHandler
 	def on_any_event(self, e):
@@ -45,6 +48,7 @@ class Watcher(FileSystemEventHandler):
 			with self.lock:
 				self.pending[path] = time.monotonic()
 
+
 	def _ready_paths(self):
 		now = time.monotonic()
 		ready = []
@@ -55,6 +59,7 @@ class Watcher(FileSystemEventHandler):
 					ready.append(path)
 		return ready
 
+
 	def _sync_path(self, path: str):
 		try:
 			self.indexer.sync_path(path)
@@ -64,9 +69,11 @@ class Watcher(FileSystemEventHandler):
 		except Exception as e:
 			log_event("error", path, "error", {"msg": f"{type(e).__name__}: {e}"})
 
+
 	def _sync_ready_paths(self):
 		for path in self._ready_paths():
 			self._sync_path(path)
+
 
 	def _run(self):
 		last_full = time.monotonic()
@@ -78,11 +85,13 @@ class Watcher(FileSystemEventHandler):
 				self._sync_path(str(self.target_root))
 				last_full = time.monotonic()
 
+
 	def start(self):
 		threading.Thread(target=self._run, daemon=True).start()
 		self.observer = PollingObserver(timeout=1)
 		self.observer.schedule(self, str(self.target_root), recursive=True)
 		self.observer.start()
+
 
 	def stop(self):
 		self.stopped.set()
