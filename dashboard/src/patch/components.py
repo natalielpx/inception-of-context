@@ -11,7 +11,7 @@ class QueryForm:
 			self._k = ui.number("k", value=5, precision=0).classes("w-20")
 			self._max_attempts = ui.number("max attempts", value=3, precision=0).classes("w-20")
 			ui.space()
-			self._buttons = ui.button("Patch", on_click=on_patch)
+			self._button = ui.button("Patch", on_click=on_patch)
 
 	@property
 	def question(self) -> str:

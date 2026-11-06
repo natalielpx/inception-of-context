@@ -28,7 +28,7 @@ services:
         LOG_FILE: /ioc/events/events.jsonl
         LOG_LEVEL: INFO
         QDRANT_COLLECTION: chunks
-        EMBEDING_MODEL: "jinaai/jina-embeddings-v2-base-code"
+        EMBEDDING_MODEL: "jinaai/jina-embeddings-v2-base-code"
         FASTEMBED_CACHE: "/ioc/cache/fastembed"
       volumes:
         - ./target:/workspace
@@ -81,6 +81,7 @@ services:
       - EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-code
       - OLLAMA_HOST=http://conv-model:11434
       - OLLAMA_MODEL=qwen2.5:3b
+      - FASTEMBED_CACHE=/ioc/cache/fastembed
     volumes:
       - fastembed_cache:${FASTEMBED_CACHE:-/ioc/cache/fastembed}
     depends_on:
@@ -104,11 +105,14 @@ services:
       SSE_ENDPOINT: ${SSE_ENDPOINT:-http://api/events}
       CONTEXT_ENDPOINT: ${CONTEXT_ENDPOINT:-http://api/context}
       ASK_ENDPOINT: ${ASK_ENDPOINT:-http://api/ask}
+      PATCH_ENDPOINT: ${PATCH_ENDPOINT:-http://api/patch}
     volumes:
       - ${TARGET_DIR:-./target}:/workspace:ro
       - index_events:/ioc/events/
     depends_on:
       - qdrant
+      - indexer
+      - api
     ports:
       - "8080:8080"
 
